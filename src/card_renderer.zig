@@ -64,11 +64,33 @@ pub const CardRenderParams = struct {
     border_texture: rl.RenderTexture,
 };
 
+/// Calculates the extra spacing offset for a card based on its position relative to the selected card
+/// The selected card gets extra spacing on both its left and right sides
+/// Smoothly blends during animation to maintain even spacing
+fn calculateSpacingOffset(idx_f: f32, selected_index_f: f32) f32 {
+    const diff = idx_f - selected_index_f;
+
+    // Cards fully to the left (distance > 1)
+    if (diff <= -1.0) {
+        return -config.selected_extra_spacing;
+    }
+    // Cards fully to the right (distance > 1)
+    else if (diff >= 1.0) {
+        return config.selected_extra_spacing;
+    }
+    // Cards in transition zone (within 1 card distance of selected)
+    // Blend from 0 at selected position to full offset at distance 1
+    else {
+        return diff * config.selected_extra_spacing;
+    }
+}
+
 /// Renders a single game card with border, background, and text
 pub fn renderCard(params: CardRenderParams) void {
     const idx_f: f32 = @as(f32, @floatFromInt(params.index));
-    const offset: f32 = (idx_f - params.selected_index_f) * config.spacing;
-    const x = config.center_x + offset - config.card_w / 2.0;
+    const base_offset: f32 = (idx_f - params.selected_index_f) * config.base_spacing;
+    const spacing_offset = calculateSpacingOffset(idx_f, params.selected_index_f);
+    const x = config.center_x + base_offset + spacing_offset - config.card_w / 2.0;
     const y: f32 = 120;
 
     // distance from the animated selection

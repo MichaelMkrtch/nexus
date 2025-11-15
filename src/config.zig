@@ -7,7 +7,8 @@ pub const screen_h: i32 = 720;
 // Card dimensions and layout
 pub const card_w: f32 = 250;
 pub const card_h: f32 = 250;
-pub const spacing: f32 = 270;
+pub const base_spacing: f32 = 240; // spacing between non-selected cards
+pub const selected_extra_spacing: f32 = 50; // extra space on each side of selected card
 pub const center_x: f32 = @as(f32, @floatFromInt(screen_w)) / 2.0;
 
 // Border settings
