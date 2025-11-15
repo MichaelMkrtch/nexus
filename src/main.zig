@@ -27,6 +27,7 @@ pub fn main() !void {
     // ---------------- State ----------------
     var selected_index: usize = 0;
     var selected_index_f: f32 = 0.0; // animated version of selected_index
+    var input_state = input.InputState.init();
 
     // --- Create border render texture (one-time) ---
     const border_rt = try card_renderer.createBorderTexture();
@@ -34,8 +35,11 @@ pub fn main() !void {
 
     // ---------------- Main Loop ----------------
     while (!rl.windowShouldClose()) {
-        // Handle input
-        selected_index = input.handleSelectionInput(selected_index, games.len);
+        // Get delta time
+        const dt: f32 = rl.getFrameTime();
+
+        // Handle input with continuous scrolling
+        selected_index = input.handleSelectionInput(selected_index, games.len, &input_state, dt);
 
         if (input.isSelectionConfirmed()) {
             const selected_game = games[selected_index];
@@ -43,7 +47,6 @@ pub fn main() !void {
         }
 
         // --- Animate selected_index_f toward selected_index ---
-        const dt: f32 = rl.getFrameTime();
         const target: f32 = @as(f32, @floatFromInt(selected_index));
         selected_index_f = animation.updateAnimatedValue(selected_index_f, target, dt, config.lerp_speed);
 
