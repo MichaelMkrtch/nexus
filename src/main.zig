@@ -38,7 +38,7 @@ pub fn main() !void {
         // Get delta time
         const dt: f32 = rl.getFrameTime();
 
-        // Handle input with continuous scrolling
+        // Handle input with continuous scrolling (supports both keyboard and gamepad)
         selected_index = input.handleSelectionInput(selected_index, games.len, &input_state, dt);
 
         if (input.isSelectionConfirmed()) {
