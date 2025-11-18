@@ -13,8 +13,8 @@ pub const center_x: f32 = @as(f32, @floatFromInt(screen_w)) / 2.0;
 
 // Border settings
 pub const border_margin: f32 = 10.0;
-pub const outer_margin: f32 = 12.0; // gradient border thickness
-pub const gap_margin: f32 = 6.0; // gap between border and card
+pub const outer_margin: f32 = 6.0; // gradient border thickness
+pub const gap_margin: f32 = 4.0; // gap between border and card
 
 // Border supersampling factor for smooth gradients
 pub const ss_factor: f32 = 8.0;

@@ -8,8 +8,11 @@ const calculateCardScale = @import("animation.zig").calculateCardScale;
 
 /// Creates a supersampled gradient border render texture
 pub fn createBorderTexture() !rl.RenderTexture {
-    const base_border_w: f32 = config.card_w + config.border_margin * 2.0;
-    const base_border_h: f32 = config.card_h + config.border_margin * 2.0;
+    // Build a rounded gradient ring texture for a base card size.
+    // Ring geometry is driven by config.gap_margin (gap) and config.outer_margin (border thickness).
+    const total_margin: f32 = config.gap_margin + config.outer_margin;
+    const base_border_w: f32 = config.card_w + total_margin * 2.0;
+    const base_border_h: f32 = config.card_h + total_margin * 2.0;
 
     const border_w_i: i32 = @intFromFloat(base_border_w * config.ss_factor);
     const border_h_i: i32 = @intFromFloat(base_border_h * config.ss_factor);
@@ -33,13 +36,27 @@ pub fn createBorderTexture() !rl.RenderTexture {
             .height = @as(f32, @floatFromInt(border_h_i)),
         };
 
-        // 1. Draw a solid white rounded rect as a mask
-        rl.drawRectangleRounded(
-            rect,
-            0.3, // outer border roundness
-            64,
-            .white,
-        );
+        // Compute rounded corner radii so that card, gap, and border
+        // follow the same "padding" rounding rule as on the web:
+        //  - Start from the card radius
+        //  - Inner ring radius = card radius + gap
+        //  - Outer ring radius = card radius + gap + border thickness
+        const card_roundness: f32 = 0.25;
+        const card_radius: f32 = card_roundness * config.card_w;
+        const gap: f32 = config.gap_margin;
+        const outer: f32 = config.outer_margin;
+
+        const radius_inner: f32 = card_radius + gap;
+        const radius_outer: f32 = card_radius + gap + outer;
+
+        const inner_width: f32 = config.card_w + gap * 2.0;
+        const outer_width: f32 = config.card_w + (gap + outer) * 2.0;
+
+        const inner_roundness: f32 = radius_inner / inner_width;
+        const outer_roundness: f32 = radius_outer / outer_width;
+
+        // 1. Draw a solid white rounded rect as a mask (outer ring radius)
+        rl.drawRectangleRounded(rect, outer_roundness, 32, .white);
 
         // 2. Multiply in the 4-corner gradient, clipped by the rounded mask
         rl.beginBlendMode(.multiplied);
@@ -50,6 +67,20 @@ pub fn createBorderTexture() !rl.RenderTexture {
             color_utils.gradient_bottom_right, // bottom-right
             color_utils.gradient_top_right, // top-right
         );
+        rl.endBlendMode();
+
+        // 3. Cut out the inner area (card + gap) to create a transparent hole
+        const inner_margin_ss = config.outer_margin * config.ss_factor;
+        const inner_rect = rl.Rectangle{
+            .x = inner_margin_ss,
+            .y = inner_margin_ss,
+            .width = rect.width - inner_margin_ss * 2.0,
+            .height = rect.height - inner_margin_ss * 2.0,
+        };
+
+        // Use subtract_colors with transparent black to clear color + alpha
+        rl.beginBlendMode(.subtract_colors);
+        rl.drawRectangleRounded(inner_rect, inner_roundness, 32, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 0 });
         rl.endBlendMode();
     }
 
@@ -119,25 +150,9 @@ pub fn renderCard(params: CardRenderParams) void {
     else
         rl.Color{ .r = 80, .g = 80, .b = 80, .a = 255 };
 
-    // Draw gradient border for selected card
+    // Draw gradient border ring for selected card (ring texture already has transparent center)
     if (is_selected) {
-        drawGradientBorder(card_x, card_y, draw_w, draw_h, params.border_texture, params.card_w);
-    }
-
-    // Gap ring (paint over inner part of gradient with background)
-    if (is_selected) {
-        const gap_margin = params.card_w * 0.024; // proportional to card size
-        rl.drawRectangleRounded(
-            rl.Rectangle{
-                .x = card_x - gap_margin,
-                .y = card_y - gap_margin,
-                .width = draw_w + gap_margin * 2.0,
-                .height = draw_h + gap_margin * 2.0,
-            },
-            0.28,
-            32,
-            rl.Color{ .r = 20, .g = 20, .b = 20, .a = 255 },
-        );
+        drawGradientBorder(card_x, card_y, draw_w, draw_h, params.border_texture);
     }
 
     // Draw main card
@@ -163,30 +178,29 @@ pub fn renderCard(params: CardRenderParams) void {
 }
 
 /// Draws the gradient border using a prerendered texture
-fn drawGradientBorder(card_x: f32, card_y: f32, draw_w: f32, draw_h: f32, border_texture: rl.RenderTexture, card_w: f32) void {
-    const base_border_w: f32 = config.card_w + config.border_margin * 2.0;
-    const base_border_h: f32 = config.card_h + config.border_margin * 2.0;
+fn drawGradientBorder(card_x: f32, card_y: f32, draw_w: f32, draw_h: f32, border_texture: rl.RenderTexture) void {
+    // Scale border + gap relative to the base config card size
+    const texture_card_w: f32 = config.card_w;
+    const texture_scale: f32 = draw_w / texture_card_w;
 
-    const border_w_i: i32 = @intFromFloat(base_border_w * config.ss_factor);
-    const border_h_i: i32 = @intFromFloat(base_border_h * config.ss_factor);
+    const gap_visual: f32 = config.gap_margin * texture_scale;
+    const outer_visual: f32 = config.outer_margin * texture_scale;
+    const total_visual: f32 = gap_visual + outer_visual;
 
-    // Calculate outer margin proportional to card size
-    const outer_margin = card_w * 0.048; // proportional to card size
-
-    // dest uses base size (no *ss_factor)
+    // Destination rectangle: card plus gap plus border thickness
     const dest = rl.Rectangle{
-        .x = card_x - outer_margin,
-        .y = card_y - outer_margin,
-        .width = draw_w + outer_margin * 2.0,
-        .height = draw_h + outer_margin * 2.0,
+        .x = card_x - total_visual,
+        .y = card_y - total_visual,
+        .width = draw_w + total_visual * 2.0,
+        .height = draw_h + total_visual * 2.0,
     };
 
-    // src uses full supersampled texture
+    // src uses full supersampled texture; hole already baked in
     const src = rl.Rectangle{
         .x = 0,
         .y = 0,
-        .width = @as(f32, @floatFromInt(border_w_i)),
-        .height = -@as(f32, @floatFromInt(border_h_i)),
+        .width = @as(f32, @floatFromInt(border_texture.texture.width)),
+        .height = -@as(f32, @floatFromInt(border_texture.texture.height)),
     };
 
     rl.drawTexturePro(border_texture.texture, src, dest, rl.Vector2{ .x = 0, .y = 0 }, 0.0, .white);
