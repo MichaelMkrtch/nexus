@@ -56,7 +56,8 @@ pub fn createBorderTexture() !rl.RenderTexture {
         const outer_roundness: f32 = radius_outer / outer_width;
 
         // 1. Draw a solid white rounded rect as a mask (outer ring radius)
-        rl.drawRectangleRounded(rect, outer_roundness, 32, .white);
+        // Use high segment count so the arc geometry is smooth
+        rl.drawRectangleRounded(rect, outer_roundness, 64, .white);
 
         // 2. Multiply in the 4-corner gradient, clipped by the rounded mask
         rl.beginBlendMode(.multiplied);
@@ -80,7 +81,7 @@ pub fn createBorderTexture() !rl.RenderTexture {
 
         // Use subtract_colors with transparent black to clear color + alpha
         rl.beginBlendMode(.subtract_colors);
-        rl.drawRectangleRounded(inner_rect, inner_roundness, 32, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 0 });
+        rl.drawRectangleRounded(inner_rect, inner_roundness, 64, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 0 });
         rl.endBlendMode();
     }
 
@@ -160,7 +161,7 @@ pub fn renderCard(params: CardRenderParams) void {
     rl.drawRectangleRounded(
         game_rect,
         0.25,
-        32,
+        64,
         card_color,
     );
 
