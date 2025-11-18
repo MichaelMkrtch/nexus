@@ -67,15 +67,16 @@ pub fn main() !void {
         const center_x: f32 = @as(f32, @floatFromInt(screen_w)) / 2.0;
         const center_y: f32 = @as(f32, @floatFromInt(screen_h)) / 2.0;
 
-        // Scale card size based on screen height (40% of screen height)
+        // Scale card size based on screen height (configurable ratio)
         const screen_h_f: f32 = @as(f32, @floatFromInt(screen_h));
-        const card_size: f32 = screen_h_f * 0.25;
+        const card_size: f32 = screen_h_f * config.card_screen_height_ratio;
         const card_w = card_size;
         const card_h = card_size;
 
         // Calculate spacing for carousel (selected card centered)
-        const base_spacing: f32 = card_size - 5; // Small gap between cards
-        const selected_extra_spacing: f32 = card_size * 0.2; // Extra space around selected
+        // Use config ratios so spacing scales with card size but stays relatively tight.
+        const base_spacing: f32 = card_size * config.card_spacing_ratio;
+        const selected_extra_spacing: f32 = card_size * config.selected_spacing_ratio;
 
         // Draw title text at top
         rl.drawText("Games", 60, 60, 48, .white);

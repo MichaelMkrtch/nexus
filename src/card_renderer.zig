@@ -37,7 +37,7 @@ pub fn createBorderTexture() !rl.RenderTexture {
         };
 
         // Compute rounded corner radii so that card, gap, and border
-        // follow the same "padding" rounding rule as on the web:
+        // follow the padding rounding rule:
         //  - Start from the card radius
         //  - Inner ring radius = card radius + gap
         //  - Outer ring radius = card radius + gap + border thickness
