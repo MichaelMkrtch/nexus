@@ -13,7 +13,7 @@ pub const BackgroundState = struct {
             .current_index = null,
             .previous_index = null,
             .transition_progress = 1.0,
-            .transition_speed = 1.1, // Higher = faster
+            .transition_speed = 2.5, // Higher = faster
         };
     }
 
@@ -118,7 +118,7 @@ fn renderHeroTexture(texture: rl.Texture2D, screen_w: f32, screen_h: f32, alpha:
     );
 
     // Draw darkening overlay to make foreground content readable
-    const overlay_alpha: u8 = @intFromFloat(@as(f32, @floatFromInt(alpha)) * 0.6); // 60% darkness
+    const overlay_alpha: u8 = @intFromFloat(@as(f32, @floatFromInt(alpha)) * 0.3); // 30% darkness
     rl.drawRectangle(
         0,
         0,

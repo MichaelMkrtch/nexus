@@ -177,19 +177,25 @@ pub fn main() !void {
         bg_state.render(screen_w, screen_h, hero_textures);
 
         // Calculate responsive positioning and sizing
-        const center_x: f32 = @as(f32, @floatFromInt(screen_w)) / 2.0;
-        const center_y: f32 = @as(f32, @floatFromInt(screen_h)) / 2.0;
-        // Scale card size based on screen height (configurable ratio)
         const screen_h_f: f32 = @as(f32, @floatFromInt(screen_h));
 
         const card_size: f32 = screen_h_f * config.card_screen_height_ratio;
         const card_w = card_size;
         const card_h = card_size;
 
-        // Calculate spacing for carousel (selected card centered)
-        // Use config ratios so spacing scales with card size but stays relatively tight.
+        // Position cards at top of screen below text
+        const top_margin: f32 = 220.0; // Space below the title text
+        const center_y: f32 = top_margin + card_h / 2.0;
+
+        // Calculate spacing for carousel
         const base_spacing: f32 = card_size * config.card_spacing_ratio;
         const selected_extra_spacing: f32 = card_size * config.selected_spacing_ratio;
+
+        // Anchor point starts at left edge, carousel scrolls horizontally
+        // When first card is selected, it appears at the left margin
+        const left_margin: f32 = 60.0;
+        const selected_card_position: f32 = left_margin + card_w / 2.0;
+        const center_x: f32 = selected_card_position + (selected_index_f * base_spacing);
 
         // Draw title text at top
         rl.drawText("Games", 60, 60, 48, .white);

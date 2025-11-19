@@ -57,7 +57,9 @@ pub fn createBorderTexture() !rl.RenderTexture {
     const width_f = @as(f32, @floatFromInt(border_w_i));
     const height_f = @as(f32, @floatFromInt(border_h_i));
 
-    const card_radius = config.card_corner_roundness * config.card_w;
+    // Match raylib's drawRectangleRounded formula: radius = min(w, h) * roundness / 2.0
+    const min_dim = @min(config.card_w, config.card_h);
+    const card_radius = min_dim * config.card_corner_roundness / 1.5;
 
     // Use the same base radius as the main card so corner curvature matches visually.
     // Gap and border thickness are handled by expanding the rect and the SDF thickness,
@@ -159,7 +161,6 @@ pub fn renderCard(params: CardRenderParams) void {
         .height = draw_h,
     };
 
-    // You can tweak this to use a game-specific accent color later
     const card_bg_color = rl.Color{
         .r = 20,
         .g = 20,
