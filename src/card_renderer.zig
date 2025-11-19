@@ -20,6 +20,10 @@ pub fn ensureCardTexture(game: Game, tex_entry: *TextureEntry) void {
             return; // leave loaded = false
         };
 
+        // Enable trilinear filtering and generate mipmaps to prevent shimmering
+        rl.genTextureMipmaps(&tex_entry.texture);
+        rl.setTextureFilter(tex_entry.texture, .trilinear);
+
         tex_entry.loaded = true;
     }
 }
