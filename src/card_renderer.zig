@@ -141,17 +141,17 @@ pub fn renderCard(params: CardRenderParams) void {
         card_color,
     );
 
-    // Draw game title
-    const text_size: i32 = @intFromFloat(params.card_w * 0.096);
-    const text_padding: f32 = params.card_w * 0.08;
-    const text_bottom_offset: f32 = params.card_w * 0.2;
-    rl.drawText(
-        params.game.title,
-        @intFromFloat(card_x + text_padding),
-        @intFromFloat(card_y + draw_h - text_bottom_offset),
-        text_size,
-        .white,
-    );
+    // // Draw game title
+    // const text_size: i32 = @intFromFloat(params.card_w * 0.096);
+    // const text_padding: f32 = params.card_w * 0.08;
+    // const text_bottom_offset: f32 = params.card_w * 0.2;
+    // rl.drawText(
+    //     params.game.title,
+    //     @intFromFloat(card_x + text_padding),
+    //     @intFromFloat(card_y + draw_h - text_bottom_offset),
+    //     text_size,
+    //     .white,
+    // );
 }
 
 /// Draws the gradient border using a prerendered texture
