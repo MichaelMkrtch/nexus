@@ -30,6 +30,18 @@ pub fn main() !void {
         return;
     }
 
+    // Create texture cache
+    const textures = try allocator.alloc(card_renderer.TextureEntry, games.len);
+    defer {
+        // unload textures
+        for (textures) |entry| {
+            if (entry.loaded) rl.unloadTexture(entry.texture);
+        }
+        allocator.free(textures);
+    }
+
+    for (textures) |*e| e.* = .{ .loaded = false };
+
     // 2. Init Raylib
     rl.setConfigFlags(.{
         .msaa_4x_hint = true,
@@ -53,6 +65,10 @@ pub fn main() !void {
     // --- Create border render texture (one-time) ---
     const border_rt = try card_renderer.createBorderTexture();
     defer rl.unloadRenderTexture(border_rt);
+
+    // --- Load rounded corner shader (one-time) ---
+    const rounded_shader = try rl.loadShader(null, "src/rounded-texture.fs");
+    defer rl.unloadShader(rounded_shader);
 
     // ---------------- Main Loop ----------------
     while (!rl.windowShouldClose()) {
@@ -155,10 +171,12 @@ pub fn main() !void {
         for (games, 0..) |game, i| {
             card_renderer.renderCard(.{
                 .game = game,
+                .texture_entry = &textures[i],
                 .index = i,
                 .selected_index = selected_index,
                 .selected_index_f = selected_index_f,
                 .border_texture = border_rt,
+                .rounded_shader = rounded_shader,
                 .center_x = center_x,
                 .center_y = center_y,
                 .card_w = card_w,

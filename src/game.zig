@@ -2,12 +2,13 @@ const std = @import("std");
 const rl = @import("raylib");
 const steam_types = @import("steam/steam_types.zig");
 
-// TODO: Consider adjusting steam_type Game struct to use sentinel string
+// TODO: Consider adjusting steam_type Game struct to use sentinel string names.
 // Do allocSentinel once in vdf parser and have sentinel string across app.
 pub const Game = struct {
     title: [:0]const u8,
     steam_index: usize,
-    accent: rl.Color,
+    cover_image_path: ?[:0]const u8,
+    hero_image_path: ?[:0]const u8,
 };
 
 pub fn buildUIGamesFromSteam(allocator: std.mem.Allocator, steam_games: []steam_types.Game) ![]Game {
@@ -20,9 +21,7 @@ pub fn buildUIGamesFromSteam(allocator: std.mem.Allocator, steam_games: []steam_
         const title = try allocator.allocSentinel(u8, name.len, 0);
         std.mem.copyForwards(u8, title[0..name.len], name);
 
-        const accentColor = pickAccentColor();
-
-        try list.append(allocator, Game{ .title = title[0..name.len :0], .steam_index = i, .accent = accentColor });
+        try list.append(allocator, Game{ .title = title[0..name.len :0], .steam_index = i, .cover_image_path = game.cover_image_path, .hero_image_path = game.hero_image_path });
     }
 
     return list.toOwnedSlice(allocator);
@@ -33,18 +32,6 @@ pub fn freeUIGames(allocator: std.mem.Allocator, games: []Game) void {
         allocator.free(g.title);
     }
     allocator.free(games);
-}
-
-fn pickAccentColor() rl.Color {
-    const r = randomColorChannel();
-    const g = randomColorChannel();
-    const b = randomColorChannel();
-
-    return rl.Color{ .r = r, .g = g, .b = b, .a = 255 };
-}
-
-fn randomColorChannel() u8 {
-    return std.crypto.random.intRangeAtMost(u8, 1, 255);
 }
 
 // pub const games = [_]Game{

@@ -1,6 +1,7 @@
 const std = @import("std");
 const steam_types = @import("steam_types.zig");
 const vdf = @import("vdf.zig");
+const steamgrid = @import("steamgrid.zig");
 
 const Game = steam_types.Game;
 const LibraryFolder = steam_types.LibraryFolder;
@@ -222,6 +223,17 @@ fn loadGamesFromLibraries(
             gpa.free(game.full_path);
             game.full_path = try getInstallPath(gpa, game);
 
+            const art = steamgrid.fetchAndCacheArt(gpa, game.app_id) catch |err| blk: {
+                std.debug.print(
+                    "SteamGridDB error for app {d}: {s}\n",
+                    .{ game.app_id, @errorName(err) },
+                );
+                break :blk steamgrid.ArtPaths{ .icon_path = null, .hero_path = null };
+            };
+
+            game.cover_image_path = art.icon_path;
+            game.hero_image_path = art.hero_path;
+
             // Try to resolve the exe path, but do not fail the whole scan
             if (resolveExePath(gpa, &game)) {
                 // Executable resolved successfully
@@ -319,6 +331,7 @@ fn parseAppManifestFile(
         .exe_path = null,
         .size_on_disk = size_on_disk,
         .cover_image_path = null,
+        .hero_image_path = null,
     };
 }
 

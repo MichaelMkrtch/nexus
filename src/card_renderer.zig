@@ -6,6 +6,24 @@ const color_utils = @import("color.zig");
 const Game = @import("game.zig").Game;
 const calculateCardScale = @import("animation.zig").calculateCardScale;
 
+pub const TextureEntry = struct { loaded: bool, texture: rl.Texture2D = undefined };
+
+pub fn ensureCardTexture(game: Game, tex_entry: *TextureEntry) void {
+    if (tex_entry.loaded) return;
+
+    if (game.cover_image_path) |path| {
+        tex_entry.texture = rl.loadTexture(path) catch |err| {
+            std.log.warn("Failed to load texture for {s}: {s}", .{
+                path,
+                @errorName(err),
+            });
+            return; // leave loaded = false
+        };
+
+        tex_entry.loaded = true;
+    }
+}
+
 /// Creates a supersampled gradient border render texture using the SDF shader in
 /// gradient-border.fs. The shader renders a rounded gradient ring with a transparent
 /// inner gap based on configuration:
@@ -78,10 +96,12 @@ pub fn createBorderTexture() !rl.RenderTexture {
 /// Parameters for rendering a single game card
 pub const CardRenderParams = struct {
     game: Game,
+    texture_entry: *TextureEntry,
     index: usize,
     selected_index: usize,
     selected_index_f: f32,
     border_texture: rl.RenderTexture,
+    rounded_shader: rl.Shader,
     center_x: f32,
     center_y: f32,
     card_w: f32,
@@ -122,36 +142,109 @@ pub fn renderCard(params: CardRenderParams) void {
 
     const is_selected = (params.index == params.selected_index);
 
-    const card_color: rl.Color = if (is_selected)
-        params.game.accent
-    else
-        rl.Color{ .r = 80, .g = 80, .b = 80, .a = 255 };
-
-    // Draw gradient border ring for selected card
+    // 1) Border first so it sits "around" the card
     if (is_selected) {
         drawGradientBorder(card_x, card_y, draw_w, draw_h, params.border_texture);
     }
 
-    // Draw main card
-    const game_rect = rl.Rectangle{ .x = card_x, .y = card_y, .width = draw_w, .height = draw_h };
+    // 2) Card background (under art)
+    const game_rect = rl.Rectangle{
+        .x = card_x,
+        .y = card_y,
+        .width = draw_w,
+        .height = draw_h,
+    };
+
+    // You can tweak this to use a game-specific accent color later
+    const card_bg_color = rl.Color{
+        .r = 20,
+        .g = 20,
+        .b = 25,
+        .a = 255,
+    };
+
     rl.drawRectangleRounded(
         game_rect,
         config.card_corner_roundness,
         64,
-        card_color,
+        card_bg_color,
     );
 
-    // // Draw game title
-    // const text_size: i32 = @intFromFloat(params.card_w * 0.096);
-    // const text_padding: f32 = params.card_w * 0.08;
-    // const text_bottom_offset: f32 = params.card_w * 0.2;
-    // rl.drawText(
-    //     params.game.title,
-    //     @intFromFloat(card_x + text_padding),
-    //     @intFromFloat(card_y + draw_h - text_bottom_offset),
-    //     text_size,
-    //     .white,
-    // );
+    // 3) Cover art (if available), scaled to fit within the rounded card
+    ensureCardTexture(params.game, params.texture_entry);
+
+    if (params.texture_entry.loaded) {
+        const tex = params.texture_entry.texture;
+
+        const tex_w: f32 = @floatFromInt(tex.width);
+        const tex_h: f32 = @floatFromInt(tex.height);
+        const tex_aspect = tex_w / tex_h;
+        const card_aspect = draw_w / draw_h;
+
+        var final_w = draw_w;
+        var final_h = draw_h;
+
+        if (tex_aspect > card_aspect) {
+            // Texture is wider than card → scale by height to cover
+            final_h = draw_h;
+            final_w = draw_h * tex_aspect;
+        } else {
+            // Texture is taller than card → scale by width to cover
+            final_w = draw_w;
+            final_h = draw_w / tex_aspect;
+        }
+
+        const offset_x = (draw_w - final_w) / 2.0;
+        const offset_y = (draw_h - final_h) / 2.0;
+
+        const src = rl.Rectangle{
+            .x = 0,
+            .y = 0,
+            .width = tex_w,
+            .height = tex_h,
+        };
+
+        const dest = rl.Rectangle{
+            .x = card_x + offset_x,
+            .y = card_y + offset_y,
+            .width = final_w,
+            .height = final_h,
+        };
+
+        // Apply rounded corner shader
+        rl.beginShaderMode(params.rounded_shader);
+
+        // Set shader uniforms
+        var size_values = [2]f32{ draw_w, draw_h };
+        // Match raylib's drawRectangleRounded calculation exactly
+        // raylib uses: radius = min(width, height) * roundness / 2.0
+        const min_dim = @min(draw_w, draw_h);
+        var radius_value: f32 = min_dim * config.card_corner_roundness / 2.0;
+
+        rl.setShaderValue(
+            params.rounded_shader,
+            rl.getShaderLocation(params.rounded_shader, "rectSize"),
+            &size_values,
+            .vec2,
+        );
+        rl.setShaderValue(
+            params.rounded_shader,
+            rl.getShaderLocation(params.rounded_shader, "radius"),
+            &radius_value,
+            .float,
+        );
+
+        rl.drawTexturePro(
+            tex,
+            src,
+            dest,
+            rl.Vector2{ .x = 0, .y = 0 },
+            0.0,
+            .white,
+        );
+
+        rl.endShaderMode();
+    }
 }
 
 /// Draws the gradient border using a prerendered texture

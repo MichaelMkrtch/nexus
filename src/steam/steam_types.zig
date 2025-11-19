@@ -1,9 +1,7 @@
 const std = @import("std");
 
-pub const GameId = u32;
-
 pub const Game = struct {
-    app_id: GameId,
+    app_id: u32,
     name: []const u8,
 
     // File System
@@ -16,7 +14,8 @@ pub const Game = struct {
     size_on_disk: u64,
 
     // Future Remote Metadata
-    cover_image_path: ?[]const u8,
+    cover_image_path: ?[:0]const u8,
+    hero_image_path: ?[:0]const u8,
     // TODO: tags, genres, etc.
 };
 
@@ -36,9 +35,8 @@ pub fn freeGame(allocator: std.mem.Allocator, game: Game) void {
         allocator.free(exe);
     }
 
-    if (game.cover_image_path) |p| {
-        allocator.free(p);
-    }
+    if (game.cover_image_path) |p| allocator.free(p);
+    if (game.hero_image_path) |p| allocator.free(p);
 }
 
 pub fn freeGames(allocator: std.mem.Allocator, games: []Game) void {
