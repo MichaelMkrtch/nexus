@@ -10,7 +10,7 @@ pub const Game = struct {
     library_root: []const u8, // ex: "D:\\SteamLibrary"
     install_dir: []const u8, // ex: "Cyberpunk 2077"
     full_path: []const u8,
-    exe_path: []const u8, // full path to exe once resolved
+    exe_path: ?[]const u8, // full path to exe once resolved
 
     // Local Metadata
     size_on_disk: u64,
@@ -31,7 +31,10 @@ pub fn freeGame(allocator: std.mem.Allocator, game: Game) void {
     allocator.free(game.library_root);
     allocator.free(game.install_dir);
     allocator.free(game.full_path);
-    allocator.free(game.exe_path);
+
+    if (game.exe_path) |exe| {
+        allocator.free(exe);
+    }
 
     if (game.cover_image_path) |p| {
         allocator.free(p);

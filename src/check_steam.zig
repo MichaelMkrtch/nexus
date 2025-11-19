@@ -10,24 +10,43 @@ pub fn main() !void {
 
     std.debug.print("=== Steam Library Test ===\n", .{});
 
-    const games = steam_local.getInstalledGames(allocator) catch |err| {
+    const lists = steam_local.getInstalledGames(allocator) catch |err| {
         std.debug.print("ERROR: Failed to load games: {s}\n", .{@errorName(err)});
         return;
     };
+    defer steam_local.freeGameLists(allocator, lists);
 
-    defer steam_types.freeGames(allocator, games);
-
-    if (games.len == 0) {
+    if (lists.games.len == 0 and lists.games_without_exe.len == 0) {
         std.debug.print("No installed Steam games detected.\n", .{});
         return;
     }
 
-    std.debug.print("Detected {d} installed Steam games:\n\n", .{games.len});
+    if (lists.games.len > 0) {
+        std.debug.print("Detected {d} installed Steam games (with resolved exe):\n\n", .{lists.games.len});
 
-    for (games) |g| {
+        for (lists.games) |g| {
+            std.debug.print(
+                "App ID: {d}\nName: {s}\nLibrary Root: {s}\nInstall Dir: {s}\nFull Path: {s}\n\n",
+                .{ g.app_id, g.name, g.library_root, g.install_dir, g.full_path },
+            );
+        }
+    } else {
+        std.debug.print("No games with a resolved executable.\n", .{});
+    }
+
+    if (lists.games_without_exe.len > 0) {
         std.debug.print(
-            "App ID: {d}\nName: {s}\nLibrary Root: {s}\nInstall Dir: {s}\nFull Path: {s}\n\n",
-            .{ g.app_id, g.name, g.library_root, g.install_dir, g.full_path },
+            "Warning: {d} game(s) without a resolved .exe:\n",
+            .{lists.games_without_exe.len},
         );
+        for (lists.games_without_exe) |g| {
+            std.debug.print("  - {s} (App ID: {d})\n", .{ g.name, g.app_id });
+        }
+    }
+
+    // Try launching the first game with a resolved exe, if any
+    if (lists.games.len > 0) {
+        std.debug.print("\nLaunching first game: {s}\n", .{lists.games[0].name});
+        try steam_local.launchGame(allocator, &lists.games[0]);
     }
 }

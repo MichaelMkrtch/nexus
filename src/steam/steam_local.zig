@@ -5,9 +5,49 @@ const vdf = @import("vdf.zig");
 const Game = steam_types.Game;
 const LibraryFolder = steam_types.LibraryFolder;
 
+pub const GameLists = struct {
+    games: []Game,
+    games_without_exe: []Game,
+};
+
+pub fn freeGameLists(allocator: std.mem.Allocator, lists: GameLists) void {
+    const gpa = allocator;
+
+    for (lists.games) |g| {
+        steam_types.freeGame(gpa, g);
+    }
+    for (lists.games_without_exe) |g| {
+        steam_types.freeGame(gpa, g);
+    }
+
+    gpa.free(lists.games);
+    gpa.free(lists.games_without_exe);
+}
+
+fn asciiLower(c: u8) u8 {
+    return if (c >= 'A' and c <= 'Z') c + 32 else c;
+}
+
+fn containsIgnoreCase(haystack: []const u8, needle: []const u8) bool {
+    if (needle.len == 0) return true;
+    if (needle.len > haystack.len) return false;
+
+    var i: usize = 0;
+    while (i + needle.len <= haystack.len) : (i += 1) {
+        var j: usize = 0;
+        while (j < needle.len and
+            asciiLower(haystack[i + j]) == asciiLower(needle[j]))
+        {
+            j += 1;
+        }
+        if (j == needle.len) return true;
+    }
+    return false;
+}
+
 /// Public entrypoint for the rest of the app.
 /// TODO: add a steam_remote.enrichGames() call on top
-pub fn getInstalledGames(allocator: std.mem.Allocator) ![]Game {
+pub fn getInstalledGames(allocator: std.mem.Allocator) !GameLists {
     const gpa = allocator;
 
     // 1. Find Steam install root
@@ -106,6 +146,12 @@ fn parseLibraryFolders(allocator: std.mem.Allocator, steam_root: []const u8) ![]
     // Collect entries
     // libraryfolders entries are usually "0", "1", "2"...
     var list = std.ArrayList(LibraryFolder){};
+    errdefer {
+        for (list.items) |lib| {
+            gpa.free(lib.path);
+        }
+        list.deinit(gpa);
+    }
 
     var it = vdf.childIterator(libraries_node);
     while (it.next()) |child| {
@@ -127,19 +173,27 @@ fn parseLibraryFolders(allocator: std.mem.Allocator, steam_root: []const u8) ![]
 }
 
 /// For each LibraryFolder, scan steamapps/appmanifest_*.acf
-/// and build Game entries
+/// and build Game entries. Returns both games with and without a
+/// successfully resolved executable.
 fn loadGamesFromLibraries(
     allocator: std.mem.Allocator,
     libs: []const LibraryFolder,
-) ![]Game {
+) !GameLists {
     const gpa = allocator;
+
     var games = std.ArrayList(Game){};
+    errdefer {
+        for (games.items) |g| steam_types.freeGame(gpa, g);
+        games.deinit(gpa);
+    }
+
+    var games_without_exe = std.ArrayList(Game){};
+    errdefer {
+        for (games_without_exe.items) |g| steam_types.freeGame(gpa, g);
+        games_without_exe.deinit(gpa);
+    }
 
     for (libs) |lib| {
-        // Build "<lib.path>\\steamapps"
-        var buffer = std.ArrayList(u8){};
-        defer buffer.deinit(gpa);
-
         const steamapps_path = try std.fs.path.join(gpa, &.{ lib.path, "steamapps" });
         defer gpa.free(steamapps_path);
 
@@ -160,18 +214,39 @@ fn loadGamesFromLibraries(
 
             // Skip utility/meta apps
             if (isUtilityApp(game.app_id)) {
-                // Free allocated memory before skipping
                 steam_types.freeGame(gpa, game);
                 continue;
             }
 
+            // Replace placeholder full_path with the real install path
+            gpa.free(game.full_path);
             game.full_path = try getInstallPath(gpa, game);
 
-            try games.append(gpa, game);
+            // Try to resolve the exe path, but do not fail the whole scan
+            if (resolveExePath(gpa, &game)) {
+                // Executable resolved successfully
+                try games.append(gpa, game);
+            } else |err| switch (err) {
+                // Executable not found: keep the game, but track separately
+                error.ExecutableNotResolved => {
+                    try games_without_exe.append(gpa, game);
+                },
+                // Some other error (I/O, permissions, etc.) – bail out
+                else => {
+                    steam_types.freeGame(gpa, game);
+                    return err;
+                },
+            }
         }
     }
 
-    return try games.toOwnedSlice(gpa);
+    const games_slice = try games.toOwnedSlice(gpa);
+    const games_without_exe_slice = try games_without_exe.toOwnedSlice(gpa);
+
+    return GameLists{
+        .games = games_slice,
+        .games_without_exe = games_without_exe_slice,
+    };
 }
 
 /// Parse a single appmanifest_XXX.acf into a Game
@@ -232,9 +307,6 @@ fn parseAppManifestFile(
     const install_copy = try gpa.alloc(u8, installdir.len);
     std.mem.copyForwards(u8, install_copy, installdir);
 
-    // Placeholder exe_path for now; we'll resolve later via scanning.
-    const exe_empty = try gpa.alloc(u8, 0);
-
     // Placeholder full_path - will be set by caller
     const full_path_empty = try gpa.alloc(u8, 0);
 
@@ -244,7 +316,7 @@ fn parseAppManifestFile(
         .library_root = library_root_buffer,
         .install_dir = install_copy,
         .full_path = full_path_empty,
-        .exe_path = exe_empty,
+        .exe_path = null,
         .size_on_disk = size_on_disk,
         .cover_image_path = null,
     };
@@ -257,4 +329,167 @@ fn isUtilityApp(app_id: u32) bool {
         431960 => true, // Wallpaper Engine
         else => false,
     };
+}
+
+pub fn resolveExePath(allocator: std.mem.Allocator, game: *Game) !void {
+    const gpa = allocator;
+
+    var best_path: ?[]u8 = null;
+    var best_score: i32 = std.math.minInt(i32);
+    errdefer if (best_path) |p| gpa.free(p);
+
+    try findExeRecursive(gpa, game.full_path, 0, game.install_dir, &best_path, &best_score);
+
+    if (best_path) |path| {
+        if (game.exe_path) |old| {
+            gpa.free(old);
+        }
+        game.exe_path = path;
+        return;
+    }
+
+    // nothing suitable found
+    return error.ExecutableNotResolved;
+}
+
+fn findExeRecursive(
+    allocator: std.mem.Allocator,
+    dir_path: []const u8,
+    depth: u32,
+    install_name: []const u8,
+    best_path: *?[]u8,
+    best_score: *i32,
+) !void {
+    const gpa = allocator;
+
+    if (depth > 5) return; // prevent runaway recursion
+
+    var dir = try std.fs.openDirAbsolute(dir_path, .{ .iterate = true });
+    defer dir.close();
+
+    var it = dir.iterate();
+    while (try it.next()) |entry| {
+        if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".exe")) {
+            const full = try std.fs.path.join(gpa, &.{ dir_path, entry.name });
+
+            var file = try std.fs.openFileAbsolute(full, .{ .mode = .read_only });
+            const stat = try file.stat();
+            file.close();
+
+            const score = scoreExeCandidate(full, entry.name, stat.size, install_name);
+
+            if (score > best_score.*) {
+                // replace previous best
+                if (best_path.*) |old| gpa.free(old);
+                best_score.* = score;
+                best_path.* = full;
+            } else {
+                // discard this candidate
+                gpa.free(full);
+            }
+        }
+
+        if (entry.kind == .directory) {
+            const sub = try std.fs.path.join(gpa, &.{ dir_path, entry.name });
+            defer gpa.free(sub);
+
+            try findExeRecursive(gpa, sub, depth + 1, install_name, best_path, best_score);
+        }
+    }
+}
+
+fn normalizeLowerAscii(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
+    const gpa = allocator;
+
+    var buffer = try gpa.alloc(u8, s.len);
+    var j: usize = 0;
+
+    for (s) |c| {
+        var out = c;
+        if (c >= 'A' and c <= 'Z') {
+            out = c + 32; // lowercase
+        }
+        // keep alnum and spaces only for now
+        if ((out >= 'a' and out <= 'z') or
+            (out >= '0' and out <= '9') or
+            out == ' ')
+        {
+            buffer[j] = out;
+            j += 1;
+        }
+    }
+    return buffer[0..j];
+}
+
+/// Scoring function to help pick the exe most likely to be the game
+fn scoreExeCandidate(
+    file_path: []const u8,
+    file_name: []const u8,
+    file_size: u64,
+    install_name: []const u8,
+) i32 {
+    var score: i32 = 0;
+
+    if (!std.mem.endsWith(u8, file_name, ".exe")) return score;
+
+    // Strip extension
+    const base_name = file_name[0 .. file_name.len - ".exe".len];
+
+    // 1) Size scoring
+    const MB: u64 = 1024 * 1024;
+    const size_mb: u64 = file_size / MB;
+    const clamped_mb: u64 = if (size_mb > 500) 500 else size_mb;
+    // Scale down to safe i32 range
+    // Max of +1000 from size
+    score += @as(i32, @intCast(clamped_mb)) * 2;
+
+    // 2) Name similarity to install folder
+    if (containsIgnoreCase(base_name, install_name)) {
+        score += 300;
+    }
+
+    // Common shipping patterns
+    const good_words = [_][]const u8{ "win64", "shipping", "game", "client" };
+    for (good_words) |w| {
+        if (containsIgnoreCase(base_name, w)) {
+            score += 80;
+        }
+    }
+
+    // 3) Directory heuristics
+    const bad_dirs = [_][]const u8{ "redist", "tools", "support" };
+    const good_dirs = [_][]const u8{ "win64", "binaries", "bin", "x64" };
+
+    for (good_dirs) |w| {
+        if (containsIgnoreCase(file_path, w)) {
+            score += 120;
+        }
+    }
+    for (bad_dirs) |w| {
+        if (containsIgnoreCase(file_path, w)) {
+            score -= 200;
+        }
+    }
+
+    // 4) Penalties for obviously wrong things
+    const bad_words2 = [_][]const u8{ "crash", "unins", "setup", "install", "report", "error", "config" };
+    for (bad_words2) |w| {
+        if (containsIgnoreCase(base_name, w)) {
+            score -= 400;
+        }
+    }
+
+    return score;
+}
+
+pub fn launchGame(allocator: std.mem.Allocator, game: *Game) !void {
+    const exe = game.exe_path orelse return error.ExecutableNotResolved;
+
+    var args = [_][]const u8{exe};
+
+    var child = std.process.Child.init(&args, allocator);
+
+    child.cwd = game.full_path;
+
+    try child.spawn();
 }
