@@ -8,6 +8,7 @@ const color_utils = @import("color.zig");
 const animation = @import("animation.zig");
 const input = @import("input.zig");
 const card_renderer = @import("card_renderer.zig");
+const background_renderer = @import("background_renderer.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -30,7 +31,7 @@ pub fn main() !void {
         return;
     }
 
-    // Create texture cache
+    // Create texture caches
     const textures = try allocator.alloc(card_renderer.TextureEntry, games.len);
     defer {
         // unload textures
@@ -57,10 +58,44 @@ pub fn main() !void {
     // Maximize window after initialization
     rl.maximizeWindow();
 
+    // Create hero texture cache and pre-load all hero images (after window init)
+    const hero_textures = try allocator.alloc(?rl.Texture2D, games.len);
+    defer {
+        for (hero_textures) |tex_opt| {
+            if (tex_opt) |tex| rl.unloadTexture(tex);
+        }
+        allocator.free(hero_textures);
+    }
+
+    for (games, 0..) |game, i| {
+        if (game.hero_image_path) |path| {
+            const texture = rl.loadTexture(path) catch |err| {
+                std.log.warn("Failed to load hero texture for {s}: {s}", .{
+                    path,
+                    @errorName(err),
+                });
+                hero_textures[i] = null;
+                continue;
+            };
+
+            // Enable filtering for smooth scaling
+            var tex = texture;
+            rl.genTextureMipmaps(&tex);
+            rl.setTextureFilter(tex, .trilinear);
+            hero_textures[i] = tex;
+        } else {
+            hero_textures[i] = null;
+        }
+    }
+
     // ---------------- State ----------------
     var selected_index: usize = 0;
     var selected_index_f: f32 = 0.0; // animated version of selected_index
     var input_state = input.InputState.init();
+
+    // Initialize background renderer with first game
+    var bg_state = background_renderer.BackgroundState.init();
+    bg_state.updateSelection(selected_index);
 
     // --- Create border render texture (one-time) ---
     const border_rt = try card_renderer.createBorderTexture();
@@ -99,9 +134,18 @@ pub fn main() !void {
         // }
 
         // Handle input with continuous scrolling (supports both keyboard and gamepad)
+        const prev_selected_index = selected_index;
         selected_index = input.handleSelectionInput(selected_index, games.len, &input_state, dt);
 
         const selected_game = games[selected_index];
+
+        // Update background if selection changed
+        if (selected_index != prev_selected_index) {
+            bg_state.updateSelection(selected_index);
+        }
+
+        // Update background transition animation
+        bg_state.update(dt);
 
         if (input.isSelectionConfirmed()) {
             // Map to Steam game
@@ -126,10 +170,11 @@ pub fn main() !void {
         const screen_w = rl.getScreenWidth();
         const screen_h = rl.getScreenHeight();
 
-        // TODO: Use selected game's background image
-        // const bg_color = color_utils.darkenColor(selected_game.accent, 0.35);
-        const bg_color = rl.Color.black;
-        rl.clearBackground(bg_color);
+        // Clear with black first (fallback if no hero image)
+        rl.clearBackground(rl.Color.black);
+
+        // Render animated background with hero images
+        bg_state.render(screen_w, screen_h, hero_textures);
 
         // Calculate responsive positioning and sizing
         const center_x: f32 = @as(f32, @floatFromInt(screen_w)) / 2.0;
