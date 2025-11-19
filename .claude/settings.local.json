@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.\\zig-out\\bin\\check_steam.exe:*)",
+      "Bash(zig-out/bin/check_steam.exe:*)",
+      "Bash(zig build:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

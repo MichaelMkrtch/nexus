@@ -155,6 +155,20 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
 
+    // Simple test for Steam parsing
+    const check_steam = b.addExecutable(.{
+        .name = "check_steam",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/check_steam.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    b.installArtifact(check_steam);
+
+    const check_steam_step = b.step("check_steam", "Run check_steam executable");
+    check_steam_step.dependOn(&check_steam.step);
+
     // Just like flags, top level steps are also listed in the `--help` menu.
     //
     // The Zig build system is entirely implemented in userland, which means
