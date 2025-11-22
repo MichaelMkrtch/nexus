@@ -93,6 +93,11 @@ pub fn main() !void {
     var selected_index_f: f32 = 0.0; // animated version of selected_index
     var input_state = input.InputState.init();
 
+    // Background transition delay state
+    var selection_hold_timer: f32 = 0.0;
+    var pending_bg_index: ?usize = 0; // Start with first game as pending
+    const bg_transition_delay: f32 = 0.5;
+
     // Initialize background renderer with first game
     var bg_state = background_renderer.BackgroundState.init();
     bg_state.updateSelection(selected_index);
@@ -139,9 +144,20 @@ pub fn main() !void {
 
         const selected_game = games[selected_index];
 
-        // Update background if selection changed
+        // Handle background transition with delay to prevent flashing during fast scrolling
         if (selected_index != prev_selected_index) {
-            bg_state.updateSelection(selected_index);
+            // Selection changed - reset timer and update pending index
+            selection_hold_timer = 0.0;
+            pending_bg_index = selected_index;
+        } else if (pending_bg_index) |pending_idx| {
+            // Selection hasn't changed - increment timer
+            selection_hold_timer += dt;
+
+            // After delay, update background
+            if (selection_hold_timer >= bg_transition_delay) {
+                bg_state.updateSelection(pending_idx);
+                pending_bg_index = null; // Clear pending once applied
+            }
         }
 
         // Update background transition animation
